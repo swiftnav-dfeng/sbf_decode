@@ -1,0 +1,3 @@
+[submodule "station-management"]
+	path = station-management
+	url = git@github.com:swift-nav/station-management.git

@@ -1,5 +1,5 @@
-import struct
 from crc import CrcCalculator, Crc16
+from sbf_decode.sbf import SBFHeader
 import logging
 
 class Handler():
@@ -18,7 +18,6 @@ class Handler():
             buf = bytearray(self.handle.read(1024))
             
             self.data += buf
-            #print(self.data)
             if len(self.data) == 0:
                 break
             self.framer()
@@ -28,7 +27,6 @@ class Handler():
         while True:
             try:
                 b = self.data.pop(0)
-                #print(b)
                 if len(self.frame) == 0:
                     if chr(b) == '$':
                         self.frame = bytearray(b'$')
@@ -79,7 +77,7 @@ class Handler():
 
     def check_frame(self):
         # perform crc check
-        crc_calculator = CrcCalculator(Crc16.CCITT)
+        crc_calculator = CrcCalculator(Crc16.CCITT, True)
 
         # calculate crc without 2 sync bytes and 2 crc bytes
         checksum = crc_calculator.calculate_checksum(self.frame[4:])
@@ -90,16 +88,5 @@ class Handler():
             return False
         
 
-class SBFHeader():
-    def __init__(self, header:bytearray):
-        (self.sync1, self.sync2, self.crc, self.ID, self.length) = struct.unpack('<ccHHH',bytes(header))
-        pass
 
-    def get_block_id(self):
-        #bits 0-12 of ID
-        return self.ID & 0x1fff
-
-    def get_block_rev(self):
-        #bits 13-15 of ID
-        return (self.ID & 0xe000) >> 13
         
