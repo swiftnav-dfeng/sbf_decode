@@ -150,14 +150,12 @@ class SBFSatVisibility(SBFBlock):
             self.SBLength   # one sub-block length
         ) = struct.unpack(self.STRUCT_FORMAT, self.body[:self.BODY_LENGTH])
 
-        padding_start = self.BODY_LENGTH
-
-        for i in range(self.N):
-            idx = self.BODY_LENGTH+i*self.SBLength
+        idx = self.BODY_LENGTH
+        for _ in range(self.N):
             self.sat_infos.append(SatInfo(self.body[idx:idx+self.SBLength]))
-            padding_start += self.SBLength
+            idx += self.SBLength
 
-        self.padding = bytes(self.body[padding_start:])
+        self.padding = bytes(self.body[idx:])
 
 class SatInfo:
     STRUCT_FORMAT = '<BBHhBB'
@@ -167,26 +165,107 @@ class SatInfo:
         self.sb = sb
 
         (
-            self.SVID,
-            self.FreqNr,
+            svid,
+            freqnr,
             self.Azimuth,
             self.Elevation,
             self.RiseSet,
             self.SatelliteInfo
         ) = struct.unpack(self.STRUCT_FORMAT, self.sb[:self.BODY_LENGTH])
 
-        self.SVID = SVID(self.SVID)
-        self.FreqNr = FreqNr(self.FreqNr)
+        self.SVID = SVID(svid)
+        self.FreqNr = FreqNr(freqnr)
 
         self.padding = bytes(self.sb[self.BODY_LENGTH:])
 
 
+class SBFMeasEpoch(SBFBlock):
+    STRUCT_FORMAT = '<BBBBBB'
+    BODY_LENGTH = 6
 
+    def __init__(self, block: bytearray):
+        super().__init__(block)
+
+        self.sub_blocks = []
+
+        (
+            self.N1,            # number of MeasEpochChannelType1 sub-blocks
+            self.SB1Length,     # Length of a MeasEpochChannelType1 sub-block, excluding the nested MeasEpochChannelType2 sub-blocks
+            self.SB2Length,      # Length of a MeasEpochChannelType2 sub-block
+            self.CommonFlags,
+            self.CumClkJumps,
+            self.Reserved
+        ) = struct.unpack(self.STRUCT_FORMAT, self.body[:self.BODY_LENGTH])
+
+        print(self.SB1Length)
+
+        idx = self.BODY_LENGTH
+        for _ in range(self.N1): 
+            sb = MeasEpochChannelType1(self.body[idx:idx+self.SB1Length])
+            type2_sb = []
+            t2_idx = idx + self.SB1Length
+            for i in range(sb.N2):
+                t2sb = MeasEpochChannelType2(self.body[t2_idx:t2_idx+self.SB2Length])
+                type2_sb.append(t2sb)
+                t2_idx += self.SB2Length
+            self.sub_blocks.append((sb, type2_sb))
+            idx = t2_idx
+
+        self.padding = bytes(self.body[idx:])
+
+class MeasEpochChannelType1:
+    STRUCT_FORMAT = '<BBBBLiHbBHBB'
+    BODY_LENGTH = 20
+
+    def __init__(self, sb):
+        self.sb = sb
+
+        (
+            self.RxChannel,
+            self.Type,
+            svid,
+            self.Misc,
+            self.CodeLSB,
+            self.Doppler,
+            self.CarrierLSB,
+            self.CarrierMSB,
+            self.CN0,
+            self.LockTime,
+            self.ObsInfo,
+            self.N2
+        ) = struct.unpack(self.STRUCT_FORMAT, self.sb[:self.BODY_LENGTH])
+
+        self.SVID = SVID(svid)
+
+        self.padding = bytes(self.sb[self.BODY_LENGTH:])
+
+
+class MeasEpochChannelType2:
+    STRUCT_FORMAT = '<BBBBbBHHH'
+    BODY_LENGTH = 12
+
+    def __init__(self, sb):
+        self.sb = sb
+
+        (
+            self.Type,
+            self.LockTime,
+            self.CN0,
+            self.OffsetsMSB,
+            self.CarrierMSB,
+            self.ObsInfo,
+            self.CodeOffsetLSB,
+            self.CarrierLSB,
+            self.DopplerOffsetLSB
+        ) = struct.unpack(self.STRUCT_FORMAT, self.sb[:self.BODY_LENGTH])
+
+        self.padding = bytes(self.sb[self.BODY_LENGTH:])
 
 sbf_lookup = {
     4012: SBFSatVisibility,
     4006: SBFPvtCartesian,
-    4007: SBFPvtGeodetic
+    4007: SBFPvtGeodetic,
+    4027: SBFMeasEpoch
 }
 
 class SVID:

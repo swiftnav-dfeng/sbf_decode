@@ -24,7 +24,8 @@ class HttpDriver(BaseDriver):
         return self
     
     def __exit__(self, exc_type, exc_val, exc_tb):
-        pass
+        if self.rx is not None:
+            self.rx.http_logout()
         
     def open(self):
         return self.__enter__()
