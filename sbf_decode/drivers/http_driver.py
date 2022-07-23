@@ -19,8 +19,6 @@ class HttpDriver(BaseDriver):
     def __enter__(self):
         self.rx = SeptentrioReceiver(self.address, self.port, (self.username, self.password))
         self.rx.http_login()
-        #self.sbf_reader = SBFReader(self.read)
-        #return self.sbf_reader
         return self
     
     def __exit__(self, exc_type, exc_val, exc_tb):
