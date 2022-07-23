@@ -14,14 +14,20 @@ class Handler():
 
 
     def process(self):
-        while self.handle:
-            buf = bytearray(self.handle.read(1024))
+        while True:
+            buf = bytearray(b'')
+            if self.handle is not None:
+                buf = bytearray(self.handle.read(1024))
             
-            self.data += buf
+            self.insert_data(buf)
             if len(self.data) == 0:
                 break
             self.framer()
+        
+        logging.info('no data available, returning')
 
+    def insert_data(self, data:bytearray):
+        self.data += data
 
     def framer(self):
         while True:
@@ -52,6 +58,7 @@ class Handler():
                         self.reset_frame()
                         pass
                     else:
+                        logging.info(f"CRC check failed on data {self.frame}")
                         # crc failed, reset frame
                         # reinsert all bytes, except the first 2 sync bytes back into data
                         self.data = self.frame[2:] + self.data
