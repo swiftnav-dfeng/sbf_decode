@@ -192,10 +192,12 @@ class SBFMeasEpoch(SBFBlock):
             self.N1,            # number of MeasEpochChannelType1 sub-blocks
             self.SB1Length,     # Length of a MeasEpochChannelType1 sub-block, excluding the nested MeasEpochChannelType2 sub-blocks
             self.SB2Length,      # Length of a MeasEpochChannelType2 sub-block
-            self.CommonFlags,
+            commonflags,
             self.CumClkJumps,
             self.Reserved
         ) = struct.unpack(self.STRUCT_FORMAT, self.body[:self.BODY_LENGTH])
+
+        self.CommonFlags = self.parse_commonflags(commonflags)
 
         print(self.SB1Length)
 
@@ -212,6 +214,17 @@ class SBFMeasEpoch(SBFBlock):
             idx = t2_idx
 
         self.padding = bytes(self.body[idx:])
+
+    def parse_commonflags(self, flags:int):
+        parsed = {
+            'multipath_multigation' : bool(flags & 0x1),
+            'code_smoothing' : bool(flags & 0x2),
+            'carrier_phase_align' : bool(flags & 0x4 >> 2),
+            'clock_steering' : bool(flags & 0x8),
+            'high_dynamics' : bool(flags & 0x20),
+            'scrambling' : bool(flags & 0x80)
+        }
+        return parsed
 
 class MeasEpochChannelType1:
     STRUCT_FORMAT = '<BBBBLiHbBHBB'
@@ -236,8 +249,17 @@ class MeasEpochChannelType1:
         ) = struct.unpack(self.STRUCT_FORMAT, self.sb[:self.BODY_LENGTH])
 
         self.SVID = SVID(svid)
+        self.SignalType = self.get_signal_type(self.Type, self.ObsInfo)
 
         self.padding = bytes(self.sb[self.BODY_LENGTH:])
+
+    def get_signal_type (self, type, obsinfo):
+        lsb = type & 0x1f
+        if lsb != 31:
+            return SignalType(lsb)
+        else:
+            return SignalType((obsinfo & 0xf8) >> 3)
+        pass
 
 
 class MeasEpochChannelType2:
@@ -269,42 +291,92 @@ sbf_lookup = {
 }
 
 class SVID:
-    def __init__(self, SVID):
-        self.SVID = SVID
-        self.sat_code = self.get_sat_code()
+    def __init__(self, svid:int):
+        self.sat_code = self.get_sat_code(svid)
     
-    def get_sat_code(self):
-        if self.SVID >= 1 and self.SVID <= 37:
-            return f'G{self.SVID}'
-        elif self.SVID >= 38 and self.SVID <= 61:
-            return f'R{self.SVID-37}'
-        elif self.SVID ==62:
+    def get_sat_code(self, svid:int):
+        if svid >= 1 and svid <= 37:
+            return f'G{svid}'
+        elif svid >= 38 and svid <= 61:
+            return f'R{svid-37}'
+        elif svid ==62:
             return f'RNA'
-        elif self.SVID >= 63 and self.SVID <= 68:
-            return f'R{self.SVID-38}'
-        elif self.SVID >= 71 and self.SVID <= 106:
-            return f'E{self.SVID-70}'
-        elif self.SVID >= 107 and self.SVID <= 119:
-            return f'LBandBeams-{self.SVID}'
-        elif self.SVID >= 120 and self.SVID <= 140:
-            return f'S{self.SVID}'
-        elif self.SVID >= 141 and self.SVID <= 180:
-            return f'C{self.SVID-140}'
-        elif self.SVID >= 181 and self.SVID <= 187:
-            return f'J{self.SVID-180}'
-        elif self.SVID >= 191 and self.SVID <= 197:
-            return f'I{self.SVID-190}'
-        elif self.SVID >= 198 and self.SVID <= 215:
-            return f'S{self.SVID-57}'
-        elif self.SVID >= 216 and self.SVID <= 222:
-            return f'I{self.SVID-208}'
-        elif self.SVID >= 223 and self.SVID <= 245:
-            return f'C{self.SVID-182}'
+        elif svid >= 63 and svid <= 68:
+            return f'R{svid-38}'
+        elif svid >= 71 and svid <= 106:
+            return f'E{svid-70}'
+        elif svid >= 107 and svid <= 119:
+            return f'LBandBeams-{svid}'
+        elif svid >= 120 and svid <= 140:
+            return f'S{svid}'
+        elif svid >= 141 and svid <= 180:
+            return f'C{svid-140}'
+        elif svid >= 181 and svid <= 187:
+            return f'J{svid-180}'
+        elif svid >= 191 and svid <= 197:
+            return f'I{svid-190}'
+        elif svid >= 198 and svid <= 215:
+            return f'S{svid-57}'
+        elif svid >= 216 and svid <= 222:
+            return f'I{svid-208}'
+        elif svid >= 223 and svid <= 245:
+            return f'C{svid-182}'
         else:
-            return f'Unk-{self.SVID}'
+            return f'Unk-{svid}'
 
 class FreqNr:
-    def __init__(self, FreqNr):
+    def __init__(self, freqnr:int):
         # GLONASS Frequency number offset of 8
         # Do not use if not GLONASS
-        self.FreqNr = FreqNr - 8
+        self.FreqNr = self.get_freqnr(freqnr)
+    
+    def get_freqnr(self, freqnr:int):
+        return (freqnr - 8)
+
+class SignalType:
+    SIGNAL_TYPES = {
+        0:('L1CA', 'GPS', '1C'),
+        1:('L1P', 'GPS', '1W'),
+        2:('L2P', 'GPS', '2W'),
+        3:('L2C', 'GPS', '2L'),
+        4:('L5', 'GPS', '5Q'),
+        5:('L1C', 'GPS', '1L'),
+        6:('L1CA', 'QZSS', '1C'),
+        7:('L2C', 'QZSS', '2L'),
+        8:('L1CA', 'GLONASS', '1C'),
+        9:('L1P', 'GLONASS', '1P'),
+        10:('L2P', 'GLONASS', '2P'),
+        11:('L2CA', 'GLONASS', '2C'),
+        12:('L3', 'GLONASS', '3Q'),
+        13:('B1C', 'BeiDou', '1P'),
+        14:('B2a', 'BeiDou', '5P'),
+        15:('L5', 'NavIC/IRNSS', '5A'),
+        16:('Reserved', 'Reserved', 'Reserved'),
+        17:('E1 (L1BC)', 'Galileo', '1C'),
+        18:('Reserved', 'Reserved', 'Reserved'),
+        19:('E6 (E6BC)', 'Galileo', '6C'),
+        20:('E5a', 'Galileo', '5Q'),
+        21:('E5b', 'Galileo', '7Q'),
+        22:('E5 AltBoc', 'Galileo', '8Q'),
+        23:('LBand', 'MSS', 'NA'),
+        24:('L1CA', 'SBAS', '1C'),
+        25:('L5', 'SBAS', '5I'),
+        26:('L5', 'QZSS', '5Q'),
+        27:('L6', 'QZSS', None),
+        28:('B1I', 'BeiDou', '2I'),
+        29:('B2I', 'BeiDou', '7I'),
+        30:('B3I', 'BeiDou', '6I'),
+        31:('Reserved', 'Reserved', 'Reserved'),
+        32:('L1C', 'QZSS', '1L'),
+        33:('L1S', 'QZSS', '1Z'),
+        34:('B2b', 'BeiDou', '7D'),
+        35:('Reserved', 'Reserved', 'Reserved')       
+    }
+
+    def __init__(self, signal:int):
+        self.SignalType = self.get_signal_type(signal)[0]
+        self.Constellation = self.get_signal_type(signal)[1]
+        self.RINEX_obs_code = self.get_signal_type(signal)[2]
+
+    def get_signal_type(self, signal:int):
+        return self.SIGNAL_TYPES[signal]
