@@ -281,6 +281,8 @@ class MeasEpochChannelType2:
             self.DopplerOffsetLSB
         ) = struct.unpack(self.STRUCT_FORMAT, self.sb[:self.BODY_LENGTH])
 
+        self.SignalType = self.get_signal_type(self.Type, self.ObsInfo)
+
         self.padding = bytes(self.sb[self.BODY_LENGTH:])
 
 sbf_lookup = {

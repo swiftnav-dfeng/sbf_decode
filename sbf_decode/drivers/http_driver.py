@@ -1,4 +1,4 @@
-from sbf_decode.drivers.driver import BaseDriver
+from drivers.driver import BaseDriver
 from gnss_receivers.septentrio.receiver_septentrio import SeptentrioReceiver
 from base64 import b64decode
 
@@ -19,6 +19,7 @@ class HttpDriver(BaseDriver):
     def __enter__(self):
         self.rx = SeptentrioReceiver(self.address, self.port, (self.username, self.password))
         self.rx.http_login()
+        
         return self
     
     def __exit__(self, exc_type, exc_val, exc_tb):

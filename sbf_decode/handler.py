@@ -1,5 +1,5 @@
 from crc import CrcCalculator, Crc16
-from sbf_decode.sbf import SBFHeader
+from sbf_decode.sbf_decode.sbf import SBFHeader
 import logging
 
 class Handler():

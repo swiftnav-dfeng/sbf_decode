@@ -3,3 +3,6 @@ test_files
 sbf_decode/__pycache__
 sbf_decode/drivers/__pycache__
 frame_printer.py
+build
+dist
+sbf_decode/sbf_decode.egg-info
