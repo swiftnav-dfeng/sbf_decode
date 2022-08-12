@@ -28,21 +28,33 @@ class SBFTimeStamp:
 class SBFBlock:
 
     def __init__(self, block: bytearray):
-        self.header = SBFHeader(block[:HEADER_SIZE])
-        self.timestamp = SBFTimeStamp(block[HEADER_SIZE:HEADER_SIZE+TIMESTAMP_SIZE])
-        self.body = block[HEADER_SIZE+TIMESTAMP_SIZE:]
+        self.data = block
+        self.header = SBFHeader(self.data[:HEADER_SIZE])
+        self.timestamp = SBFTimeStamp(self.data[HEADER_SIZE:HEADER_SIZE+TIMESTAMP_SIZE])
+        self.body = self._parse_body()
 
-class SBFPvtCartesian(SBFBlock):
+    def _parse_body(self):
+        cls = sbf_lookup.get(self.header.get_block_id(), SBFBody)
+        return cls(self.data[HEADER_SIZE+TIMESTAMP_SIZE:], self.header.get_block_rev())
+
+class SBFBody:
+    STRUCT_FORMAT = ''
+    BODY_LENGTH = 0
+
+    def __init__(self, body: bytearray, rev=0) -> None:
+        self.body = body
+        self.rev = rev
+        pass
+
+class SBFPvtCartesian(SBFBody):
     STRUCT_FORMAT = '<BBdddfffffdfBBBBHHIBBH'
     BODY_LENGTH = 74
     
     STRUCT_FORMAT_V2 = '<HHHB'
     BODY_LENGTH_V2 = 7 + BODY_LENGTH
 
-    def __init__(self, block: bytearray):
-        super().__init__(block)
-
-        rev = self.header.get_block_rev()
+    def __init__(self, body: bytearray, rev=0) -> None:
+        super().__init__(body, rev)
 
         # parse v1
         (
@@ -83,18 +95,18 @@ class SBFPvtCartesian(SBFBlock):
             padding_start = self.BODY_LENGTH_V2
 
         self.padding = bytes(self.body[padding_start:])
+    
 
-class SBFPvtGeodetic(SBFBlock):
+class SBFPvtGeodetic(SBFBody):
     STRUCT_FORMAT = '<BBdddfffffdfBBBBHHIBBH'
     BODY_LENGTH = 74
     
     STRUCT_FORMAT_V2 = '<HHHB'
     BODY_LENGTH_V2 = 7 + BODY_LENGTH
 
-    def __init__(self, block: bytearray):
-        super().__init__(block)
+    def __init__(self, body: bytearray, rev=0) -> None:
+        super().__init__(body, rev)
 
-        rev = self.header.get_block_rev()
 
         # parse v1
         (
@@ -124,7 +136,7 @@ class SBFPvtGeodetic(SBFBlock):
 
         padding_start = self.BODY_LENGTH
 
-        if rev == 2:
+        if self.rev == 2:
             (
                 self.Latency,
                 self.HAccuracy,
@@ -136,12 +148,12 @@ class SBFPvtGeodetic(SBFBlock):
 
         self.padding = bytes(self.body[padding_start:])
 
-class SBFSatVisibility(SBFBlock):
+class SBFSatVisibility(SBFBody):
     STRUCT_FORMAT = '<BB'
     BODY_LENGTH = 2
 
-    def __init__(self, block: bytearray):
-        super().__init__(block)
+    def __init__(self, body: bytearray, rev=0) -> None:
+        super().__init__(body, rev)
 
         self.sat_infos = []
 
@@ -179,12 +191,12 @@ class SatInfo:
         self.padding = bytes(self.sb[self.BODY_LENGTH:])
 
 
-class SBFMeasEpoch(SBFBlock):
+class SBFMeasEpoch(SBFBody):
     STRUCT_FORMAT = '<BBBBBB'
     BODY_LENGTH = 6
 
-    def __init__(self, block: bytearray):
-        super().__init__(block)
+    def __init__(self, body: bytearray, rev=0) -> None:
+        super().__init__(body, rev)
 
         self.sub_blocks = []
 
@@ -281,7 +293,10 @@ class MeasEpochChannelType2:
             self.DopplerOffsetLSB
         ) = struct.unpack(self.STRUCT_FORMAT, self.sb[:self.BODY_LENGTH])
 
-        self.SignalType = self.get_signal_type(self.Type, self.ObsInfo)
+        if self.Type == 31:
+            self.SignalType = SignalType((self.ObsInfo >> 3) + 31)
+        else:
+            self.SignalType = SignalType(self.Type)
 
         self.padding = bytes(self.sb[self.BODY_LENGTH:])
 
@@ -345,6 +360,7 @@ class FreqNr:
 
 class SignalType:
     SIGNAL_TYPES = {
+        # Signal, Constellation, Rinex code
         0:('L1CA', 'GPS', '1C'),
         1:('L1P', 'GPS', '1W'),
         2:('L2P', 'GPS', '2W'),
