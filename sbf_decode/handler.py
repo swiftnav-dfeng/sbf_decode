@@ -1,5 +1,5 @@
 from crc import CrcCalculator, Crc16
-from sbf_decode.sbf_decode.sbf import SBFHeader
+from sbf_decode.sbf import SBFHeader, SBFBlock
 import logging
 
 class Handler():
@@ -53,7 +53,7 @@ class Handler():
                 elif (self.frame_length is not None) and (len(self.frame) == self.frame_length - 1):
                     self.frame.append(b)
                     if self.check_frame():
-                        self.callback(self.header, self.frame)
+                        self.callback(SBFBlock(self.frame))
 
                         self.reset_frame()
                         pass
