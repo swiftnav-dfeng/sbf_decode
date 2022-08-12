@@ -7,8 +7,8 @@ setup(
     author="Swift Operations",
     author_email="operations@swift-nav.com",
     description="Decode Septentrio Binary Format",
-    packages=find_packages(where='sbf_decode'),
-    package_dir={"": "sbf_decode"},
+    #packages=find_packages(where='sbf_decode'),
+    package_dir={"sbf_decode": "sbf_decode"},
     install_requires=[
         'goldcrest-devices',
         'crc',
