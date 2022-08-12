@@ -259,7 +259,7 @@ class MeasEpochChannelType1:
             return SignalType(lsb)
         else:
             return SignalType((obsinfo & 0xf8) >> 3)
-        pass
+        
 
 
 class MeasEpochChannelType2:
@@ -284,6 +284,14 @@ class MeasEpochChannelType2:
         self.SignalType = self.get_signal_type(self.Type, self.ObsInfo)
 
         self.padding = bytes(self.sb[self.BODY_LENGTH:])
+
+    def get_signal_type (self, type, obsinfo):
+        lsb = type & 0x1f
+        if lsb != 31:
+            return SignalType(lsb)
+        else:
+            return SignalType((obsinfo & 0xf8) >> 3)
+        
 
 sbf_lookup = {
     4012: SBFSatVisibility,
@@ -376,6 +384,7 @@ class SignalType:
     }
 
     def __init__(self, signal:int):
+        self.id = signal
         self.SignalType = self.get_signal_type(signal)[0]
         self.Constellation = self.get_signal_type(signal)[1]
         self.RINEX_obs_code = self.get_signal_type(signal)[2]

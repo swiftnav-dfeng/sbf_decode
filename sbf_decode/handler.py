@@ -18,6 +18,9 @@ class Handler():
             buf = bytearray(b'')
             if self.handle is not None:
                 buf = bytearray(self.handle.read(1024))
+            else:
+                logging.info('handle is none, end loop')
+                break
             
             self.insert_data(buf)
             if len(self.data) == 0:
