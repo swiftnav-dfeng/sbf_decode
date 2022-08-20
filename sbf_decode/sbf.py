@@ -1,5 +1,6 @@
 import struct
 import logging
+from pandas import DataFrame
 
 HEADER_SIZE = 8
 TIMESTAMP_SIZE = 6
@@ -238,6 +239,75 @@ class SBFMeasEpoch(SBFBody):
         }
         return parsed
 
+    def get_obs_dataframe(self):
+        obs = {
+            'SVID': [],
+            'SignalType': [],
+            'Constellation': [],
+            'CN0': [],
+            'Pseudorange (m)': [],
+            'Doppler (Hz)': [],
+            'Carrier Phase (Cycles)': [],
+            'Locktime (s)': []
+        }
+
+        for sb1, sb2_list in self.sub_blocks:
+            obs['SVID'].extend([sb1.SVID.sat_code] * (len(sb2_list) + 1))
+            obs['Constellation'].extend([sb1.SignalType.Constellation] * (len(sb2_list) + 1))
+
+            obs['SignalType'].append(sb1.SignalType.SignalType)
+            obs['CN0'].append(sb1.get_CN0())
+            if (sb1.Misc & 0xf) == 0 and sb1.CodeLSB == 0:
+                pseudorange = None
+            else:
+                pseudorange = ((sb1.Misc & 0xf) * 4294967296 + sb1.CodeLSB) * 0.001
+            obs['Pseudorange (m)'].append(pseudorange)
+
+            if (sb1.Doppler == -2147483648):
+                doppler = None
+            else:
+                doppler = sb1.Doppler * 0.0001
+            obs['Doppler (Hz)'].append(doppler)
+
+            if sb1.CarrierMSB == -128 and sb1.CarrierLSB == 0:
+                carrier_phase = None
+            else:
+                carrier_phase = pseudorange / (299792458/sb1.SignalType.Frequency) + (sb1.CarrierMSB * 65536 + sb1.CarrierLSB) * 0.001
+            obs['Carrier Phase (Cycles)'].append(carrier_phase)
+
+            obs['Locktime (s)'].append(sb1.LockTime)
+
+            for sb2 in sb2_list:
+                #re calculate signal type in case of GLONASS
+                freq = sb2.SignalType.Frequency
+                if (sb2.SignalType.id >= 8) and (sb2.SignalType.id <= 11):
+                    #GLO
+                    freq = SignalType(sb2.Type, sb1.ObsInfo)
+
+                obs['SignalType'].append(sb2.SignalType.SignalType)
+                obs['CN0'].append(sb2.get_CN0())
+                if pseudorange is None or (sb2.CodeOffsetMSB == -4 and sb2.CodeOffsetLSB == 0):
+                    pr2 = None
+                else:
+                    pr2 = pseudorange + (sb2.CodeOffsetMSB * 65536 + sb2.CodeOffsetLSB) * 0.001
+                obs['Pseudorange (m)'].append(pr2)
+
+                if doppler is None or (sb2.DopplerOffsetMSB == -16 and sb2.DopplerOffsetLSB == 0):
+                    d2 = None
+                else:
+                    d2 = doppler * 0.0001
+                obs['Doppler (Hz)'].append(d2)
+
+                if sb2.CarrierMSB == -128 and sb1.CarrierLSB == 0:
+                    cp2 = None
+                else:
+                    cp2 = pr2 / (299792458/freq) + (sb2.CarrierMSB * 65536 + sb2.CarrierLSB) * 0.001
+                obs['Carrier Phase (Cycles)'].append(cp2)
+
+                obs['Locktime (s)'].append(sb1.LockTime)
+
+        return obs
+
 class MeasEpochChannelType1:
     STRUCT_FORMAT = '<BBBBLiHbBHBB'
     BODY_LENGTH = 20
@@ -261,16 +331,15 @@ class MeasEpochChannelType1:
         ) = struct.unpack(self.STRUCT_FORMAT, self.sb[:self.BODY_LENGTH])
 
         self.SVID = SVID(svid)
-        self.SignalType = self.get_signal_type(self.Type, self.ObsInfo)
+        self.SignalType = SignalType(self.Type, self.ObsInfo)
 
         self.padding = bytes(self.sb[self.BODY_LENGTH:])
-
-    def get_signal_type (self, type, obsinfo):
-        lsb = type & 0x1f
-        if lsb != 31:
-            return SignalType(lsb)
+    
+    def get_CN0(self):
+        if self.SignalType.SignalType == 1 or self.SignalType.SignalType == 2:
+            return self.CN0 * 0.25
         else:
-            return SignalType((obsinfo & 0xf8) >> 3)
+            return self.CN0 * 0.25 + 10
         
 
 
@@ -293,19 +362,24 @@ class MeasEpochChannelType2:
             self.DopplerOffsetLSB
         ) = struct.unpack(self.STRUCT_FORMAT, self.sb[:self.BODY_LENGTH])
 
-        if self.Type == 31:
-            self.SignalType = SignalType((self.ObsInfo >> 3) + 31)
-        else:
-            self.SignalType = SignalType(self.Type)
+        self.SignalType = SignalType(self.Type, self.ObsInfo)
+
+        self.CodeOffsetMSB = twos_comp(self.OffsetsMSB & 0x7, 3)
+        self.DopplerOffsetMSB = twos_comp((self.OffsetsMSB & 0xf8) >> 3, 5)
 
         self.padding = bytes(self.sb[self.BODY_LENGTH:])
 
-    def get_signal_type (self, type, obsinfo):
-        lsb = type & 0x1f
-        if lsb != 31:
-            return SignalType(lsb)
+    def get_CN0(self):
+        if self.SignalType.SignalType == 1 or self.SignalType.SignalType == 2:
+            return self.CN0 * 0.25
         else:
-            return SignalType((obsinfo & 0xf8) >> 3)
+            return self.CN0 * 0.25 + 10
+
+def twos_comp(val, bits):
+    """compute the 2's complement of int value val"""
+    if (val & (1 << (bits - 1))) != 0: # if sign bit is set e.g., 8bit: 128-255
+        val = val - (1 << bits)        # compute negative value
+    return val                         # return positive value as is
         
 
 sbf_lookup = {
@@ -360,50 +434,61 @@ class FreqNr:
 
 class SignalType:
     SIGNAL_TYPES = {
-        # Signal, Constellation, Rinex code
-        0:('L1CA', 'GPS', '1C'),
-        1:('L1P', 'GPS', '1W'),
-        2:('L2P', 'GPS', '2W'),
-        3:('L2C', 'GPS', '2L'),
-        4:('L5', 'GPS', '5Q'),
-        5:('L1C', 'GPS', '1L'),
-        6:('L1CA', 'QZSS', '1C'),
-        7:('L2C', 'QZSS', '2L'),
-        8:('L1CA', 'GLONASS', '1C'),
-        9:('L1P', 'GLONASS', '1P'),
-        10:('L2P', 'GLONASS', '2P'),
-        11:('L2CA', 'GLONASS', '2C'),
-        12:('L3', 'GLONASS', '3Q'),
-        13:('B1C', 'BeiDou', '1P'),
-        14:('B2a', 'BeiDou', '5P'),
-        15:('L5', 'NavIC/IRNSS', '5A'),
-        16:('Reserved', 'Reserved', 'Reserved'),
-        17:('E1 (L1BC)', 'Galileo', '1C'),
-        18:('Reserved', 'Reserved', 'Reserved'),
-        19:('E6 (E6BC)', 'Galileo', '6C'),
-        20:('E5a', 'Galileo', '5Q'),
-        21:('E5b', 'Galileo', '7Q'),
-        22:('E5 AltBoc', 'Galileo', '8Q'),
-        23:('LBand', 'MSS', 'NA'),
-        24:('L1CA', 'SBAS', '1C'),
-        25:('L5', 'SBAS', '5I'),
-        26:('L5', 'QZSS', '5Q'),
-        27:('L6', 'QZSS', None),
-        28:('B1I', 'BeiDou', '2I'),
-        29:('B2I', 'BeiDou', '7I'),
-        30:('B3I', 'BeiDou', '6I'),
-        31:('Reserved', 'Reserved', 'Reserved'),
-        32:('L1C', 'QZSS', '1L'),
-        33:('L1S', 'QZSS', '1Z'),
-        34:('B2b', 'BeiDou', '7D'),
-        35:('Reserved', 'Reserved', 'Reserved')       
+        # Signal, Constellation, Rinex code, Frequency
+        0:('L1CA', 'GPS', '1C', 1575.42),
+        1:('L1P', 'GPS', '1W', 1575.42),
+        2:('L2P', 'GPS', '2W', 1227.60),
+        3:('L2C', 'GPS', '2L', 1227.60),
+        4:('L5', 'GPS', '5Q', 1176.45),
+        5:('L1C', 'GPS', '1L', 1575.42),
+        6:('L1CA', 'QZSS', '1C', 1575.42),
+        7:('L2C', 'QZSS', '2L', 1227.60),
+        8:('L1CA', 'GLONASS', '1C', 1602.0),
+        9:('L1P', 'GLONASS', '1P', 1602.0),
+        10:('L2P', 'GLONASS', '2P', 1246.0),
+        11:('L2CA', 'GLONASS', '2C', 1246.0),
+        12:('L3', 'GLONASS', '3Q', 1202.025),
+        13:('B1C', 'BeiDou', '1P', 1575.42),
+        14:('B2a', 'BeiDou', '5P', 1176.45),
+        15:('L5', 'NavIC/IRNSS', '5A', 1176.45),
+        16:('Reserved', 'Reserved', 'Reserved', None),
+        17:('E1 (L1BC)', 'Galileo', '1C', 1575.42),
+        18:('Reserved', 'Reserved', 'Reserved', None),
+        19:('E6 (E6BC)', 'Galileo', '6C', 1278.75),
+        20:('E5a', 'Galileo', '5Q', 1176.45),
+        21:('E5b', 'Galileo', '7Q', 1207.14),
+        22:('E5 AltBoc', 'Galileo', '8Q', 1191.795),
+        23:('LBand', 'MSS', 'NA', None),
+        24:('L1CA', 'SBAS', '1C', 1575.42),
+        25:('L5', 'SBAS', '5I', 1176.45),
+        26:('L5', 'QZSS', '5Q', 1176.45),
+        27:('L6', 'QZSS', None, 1278.75),
+        28:('B1I', 'BeiDou', '2I', 1561.098),
+        29:('B2I', 'BeiDou', '7I', 1207.14),
+        30:('B3I', 'BeiDou', '6I', 1268.52),
+        31:('Reserved', 'Reserved', 'Reserved', None),
+        32:('L1C', 'QZSS', '1L', 1575.42),
+        33:('L1S', 'QZSS', '1Z', 1575.42),
+        34:('B2b', 'BeiDou', '7D', 1207.14),
+        35:('Reserved', 'Reserved', 'Reserved', None)       
     }
 
-    def __init__(self, signal:int):
-        self.id = signal
-        self.SignalType = self.get_signal_type(signal)[0]
-        self.Constellation = self.get_signal_type(signal)[1]
-        self.RINEX_obs_code = self.get_signal_type(signal)[2]
+    def __init__(self, type:int, obsinfo:int):
+        self.id = self.get_signal_type(type, obsinfo)
+        self.SignalType = self.SIGNAL_TYPES[self.id][0]
+        self.Constellation = self.SIGNAL_TYPES[self.id][1]
+        self.RINEX_obs_code = self.SIGNAL_TYPES[self.id][2]
+        self.Frequency = self.get_frequency(obsinfo)
 
-    def get_signal_type(self, signal:int):
-        return self.SIGNAL_TYPES[signal]
+    def get_signal_type (self, type, obsinfo):
+        lsb = type & 0x1f
+        if lsb != 31:
+            return lsb
+        else:
+            return (obsinfo & 0xf8) >> 3
+
+    def get_frequency(self, obsinfo:int):
+        if self.id == 8 or self.id == 9:
+            return self.SIGNAL_TYPES[self.id][3] + ((((obsinfo & 0xf8) >> 3) - 8) * 9/16)
+        if self.id == 10 or self.id == 10:
+            return self.SIGNAL_TYPES[self.id][3] + ((((obsinfo & 0xf8) >> 3) - 8) * 7/16)

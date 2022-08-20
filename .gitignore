@@ -6,3 +6,4 @@ frame_printer.py
 build
 dist
 sbf_decode/sbf_decode.egg-info
+sbf_decode.egg-info
