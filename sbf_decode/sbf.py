@@ -329,7 +329,10 @@ class MeasEpochChannelType1:
         ) = struct.unpack(self.STRUCT_FORMAT, self.sb[:self.BODY_LENGTH])
 
         self.SVID = SVID(svid)
-        self.SignalType = SignalType(self.Type, self.ObsInfo)
+
+        self.SigIdxLo = self.Type & 0x1f
+        self.AntennaID = (self.Type & 0xe0) >> 5
+        self.SignalType = SignalType(self.SigIdxLo, self.ObsInfo)
 
         self.padding = bytes(self.sb[self.BODY_LENGTH:])
     
@@ -360,7 +363,9 @@ class MeasEpochChannelType2:
             self.DopplerOffsetLSB
         ) = struct.unpack(self.STRUCT_FORMAT, self.sb[:self.BODY_LENGTH])
 
-        self.SignalType = SignalType(self.Type, self.ObsInfo)
+        self.SigIdxLo = self.Type & 0x1f
+        self.AntennaID = (self.Type & 0xe0) >> 5
+        self.SignalType = SignalType(self.SigIdxLo, self.ObsInfo)
 
         self.CodeOffsetMSB = twos_comp(self.OffsetsMSB & 0x7, 3)
         self.DopplerOffsetMSB = twos_comp((self.OffsetsMSB & 0xf8) >> 3, 5)
@@ -483,7 +488,7 @@ class SignalType:
         if lsb != 31:
             return lsb
         else:
-            return (obsinfo & 0xf8) >> 3
+            return ((obsinfo & 0xf8) >> 3) + 32
 
     def get_frequency(self, obsinfo:int):
         f = None
