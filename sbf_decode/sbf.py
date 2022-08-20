@@ -255,23 +255,23 @@ class SBFMeasEpoch(SBFBody):
             obs['SVID'].extend([sb1.SVID.sat_code] * (len(sb2_list) + 1))
             obs['Constellation'].extend([sb1.SignalType.Constellation] * (len(sb2_list) + 1))
 
+            freq1 = sb1.SignalType.Frequency
+
             obs['SignalType'].append(sb1.SignalType.SignalType)
             obs['CN0'].append(sb1.get_CN0())
-            if (sb1.Misc & 0xf) == 0 and sb1.CodeLSB == 0:
-                pseudorange = None
-            else:
+
+            pseudorange = None
+            if (sb1.Misc & 0xf) != 0 or sb1.CodeLSB != 0:
                 pseudorange = ((sb1.Misc & 0xf) * 4294967296 + sb1.CodeLSB) * 0.001
             obs['Pseudorange (m)'].append(pseudorange)
 
-            if (sb1.Doppler == -2147483648):
-                doppler = None
-            else:
+            doppler = None
+            if (sb1.Doppler != -2147483648):
                 doppler = sb1.Doppler * 0.0001
             obs['Doppler (Hz)'].append(doppler)
 
-            if sb1.CarrierMSB == -128 and sb1.CarrierLSB == 0:
-                carrier_phase = None
-            else:
+            carrier_phase = None
+            if sb1.CarrierMSB != -128 or sb1.CarrierLSB != 0:
                 carrier_phase = pseudorange / (299792458/sb1.SignalType.Frequency) + (sb1.CarrierMSB * 65536 + sb1.CarrierLSB) * 0.001
             obs['Carrier Phase (Cycles)'].append(carrier_phase)
 
@@ -279,34 +279,32 @@ class SBFMeasEpoch(SBFBody):
 
             for sb2 in sb2_list:
                 #re calculate signal type in case of GLONASS
-                freq = sb2.SignalType.Frequency
+                freq2 = sb2.SignalType.Frequency
                 if (sb2.SignalType.id >= 8) and (sb2.SignalType.id <= 11):
                     #GLO
-                    freq = SignalType(sb2.Type, sb1.ObsInfo)
+                    freq2 = SignalType(sb2.Type, sb1.ObsInfo).Frequency
 
                 obs['SignalType'].append(sb2.SignalType.SignalType)
                 obs['CN0'].append(sb2.get_CN0())
-                if pseudorange is None or (sb2.CodeOffsetMSB == -4 and sb2.CodeOffsetLSB == 0):
-                    pr2 = None
-                else:
+                
+                pr2 = None
+                if pseudorange is not None and (sb2.CodeOffsetMSB != -4 or sb2.CodeOffsetLSB != 0):
                     pr2 = pseudorange + (sb2.CodeOffsetMSB * 65536 + sb2.CodeOffsetLSB) * 0.001
                 obs['Pseudorange (m)'].append(pr2)
 
-                if doppler is None or (sb2.DopplerOffsetMSB == -16 and sb2.DopplerOffsetLSB == 0):
-                    d2 = None
-                else:
-                    d2 = doppler * 0.0001
+                d2 = None
+                if doppler is not None and (sb2.DopplerOffsetMSB != -16 or sb2.DopplerOffsetLSB != 0):
+                    d2 = doppler * freq2/freq1 + (sb2.DopplerOffsetMSB * 65536 + sb2.DopplerOffsetLSB) * 1e-4
                 obs['Doppler (Hz)'].append(d2)
 
-                if sb2.CarrierMSB == -128 and sb1.CarrierLSB == 0:
-                    cp2 = None
-                else:
-                    cp2 = pr2 / (299792458/freq) + (sb2.CarrierMSB * 65536 + sb2.CarrierLSB) * 0.001
+                cp2 = None
+                if sb2.CarrierMSB != -128 and sb1.CarrierLSB != 0:
+                    cp2 = pr2 / (299792458/freq2) + (sb2.CarrierMSB * 65536 + sb2.CarrierLSB) * 0.001
                 obs['Carrier Phase (Cycles)'].append(cp2)
 
                 obs['Locktime (s)'].append(sb1.LockTime)
 
-        return obs
+        return DataFrame.from_dict(obs)
 
 class MeasEpochChannelType1:
     STRUCT_FORMAT = '<BBBBLiHbBHBB'
@@ -434,7 +432,7 @@ class FreqNr:
 
 class SignalType:
     SIGNAL_TYPES = {
-        # Signal, Constellation, Rinex code, Frequency
+        # Signal, Constellation, Rinex code, Frequency (MHz)
         0:('L1CA', 'GPS', '1C', 1575.42),
         1:('L1P', 'GPS', '1W', 1575.42),
         2:('L2P', 'GPS', '2W', 1227.60),
@@ -488,7 +486,12 @@ class SignalType:
             return (obsinfo & 0xf8) >> 3
 
     def get_frequency(self, obsinfo:int):
+        f = None
         if self.id == 8 or self.id == 9:
-            return self.SIGNAL_TYPES[self.id][3] + ((((obsinfo & 0xf8) >> 3) - 8) * 9/16)
-        if self.id == 10 or self.id == 10:
-            return self.SIGNAL_TYPES[self.id][3] + ((((obsinfo & 0xf8) >> 3) - 8) * 7/16)
+            f = self.SIGNAL_TYPES[self.id][3] + ((((obsinfo & 0xf8) >> 3) - 8) * 9/16)
+        elif self.id == 10 or self.id == 11:
+            f = self.SIGNAL_TYPES[self.id][3] + ((((obsinfo & 0xf8) >> 3) - 8) * 7/16)
+        else:
+            f = self.SIGNAL_TYPES[self.id][3]
+
+        return f * 1e6  # return Hz
