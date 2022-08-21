@@ -302,7 +302,7 @@ class SBFMeasEpoch(SBFBody):
                     cp2 = pr2 / (299792458/freq2) + (sb2.CarrierMSB * 65536 + sb2.CarrierLSB) * 0.001
                 obs['Carrier Phase (Cycles)'].append(cp2)
 
-                obs['Locktime (s)'].append(sb1.LockTime)
+                obs['Locktime (s)'].append(sb2.LockTime)
 
         return DataFrame.from_dict(obs)
 
