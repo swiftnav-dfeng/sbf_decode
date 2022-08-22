@@ -243,6 +243,7 @@ class SBFMeasEpoch(SBFBody):
         obs = {
             'SVID': [],
             'SignalType': [],
+            'SignalNumber': [],
             'Constellation': [],
             'CN0': [],
             'Pseudorange (m)': [],
@@ -258,6 +259,7 @@ class SBFMeasEpoch(SBFBody):
             freq1 = sb1.SignalType.Frequency
 
             obs['SignalType'].append(sb1.SignalType.SignalType)
+            obs['SignalNumber'].append(sb1.SignalType.id)
             obs['CN0'].append(sb1.get_CN0())
 
             pseudorange = None
@@ -285,6 +287,7 @@ class SBFMeasEpoch(SBFBody):
                     freq2 = SignalType(sb2.Type, sb1.ObsInfo).Frequency
 
                 obs['SignalType'].append(sb2.SignalType.SignalType)
+                obs['SignalNumber'].append(sb2.SignalType.id)
                 obs['CN0'].append(sb2.get_CN0())
                 
                 pr2 = None
@@ -337,7 +340,7 @@ class MeasEpochChannelType1:
         self.padding = bytes(self.sb[self.BODY_LENGTH:])
     
     def get_CN0(self):
-        if self.SignalType.SignalType == 1 or self.SignalType.SignalType == 2:
+        if self.SignalType.id == 1 or self.SignalType.id == 2:
             return self.CN0 * 0.25
         else:
             return self.CN0 * 0.25 + 10
@@ -373,7 +376,7 @@ class MeasEpochChannelType2:
         self.padding = bytes(self.sb[self.BODY_LENGTH:])
 
     def get_CN0(self):
-        if self.SignalType.SignalType == 1 or self.SignalType.SignalType == 2:
+        if self.SignalType.id == 1 or self.SignalType.id == 2:
             return self.CN0 * 0.25
         else:
             return self.CN0 * 0.25 + 10
